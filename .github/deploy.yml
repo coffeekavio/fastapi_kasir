@@ -1,0 +1,34 @@
+name: Deploy FastAPI to VPS
+
+# 1. Kapan robot ini bekerja? (Setiap ada kode baru yang di-push ke branch main)
+on:
+  push:
+    branches:
+      - main # (Jika branch utama Anda bernama 'master', ubah tulisan 'main' ini menjadi 'master')
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 2. Perintah untuk login ke VPS Anda via SSH
+    - name: Login ke VPS dan Deploy
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        password: ${{ secrets.VPS_PASSWORD }}
+        
+        # 3. Rentetan perintah yang dieksekusi di dalam VPS
+        script: |
+          cd ~/velo-backend
+          
+          # Tarik kode terbaru dari GitHub
+          git pull origin main
+          
+          # Masuk ke ruang isolasi dan pasang library baru (jika ada)
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Restart mesin FastAPI otomatis (menggunakan trik echo agar tidak nyangkut minta password sudo)
+          echo ${{ secrets.VPS_PASSWORD }} | sudo -S systemctl restart fastapi_velo
