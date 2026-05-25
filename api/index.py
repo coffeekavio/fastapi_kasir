@@ -6,7 +6,7 @@ from sqlalchemy import text
 from typing import Optional, List
 import os
 from database import get_db
-from auth import verify_password, create_access_token, get_password_hash
+from .auth import verify_password, create_access_token, get_password_hash
 from .routes import kategori_router, menu_router, ingredients_router, stock_opname_router, customers_router
 
 
