@@ -77,7 +77,7 @@ def login_with_email(payload: LoginRequest, db: Session = Depends(get_db)):
             )
 
         # Verifikasi password
-        if not verify_password(payload.password[:72], result.hashed_password):
+        if not verify_password(payload.password, result.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Email atau password salah."
@@ -128,7 +128,7 @@ def login_with_username(payload: LoginUsernameRequest, db: Session = Depends(get
             )
 
         # Verifikasi password
-        if not verify_password(payload.password[:72], result.hashed_password):
+        if not verify_password(payload.password, result.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Username atau password salah."
@@ -212,8 +212,8 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="cafe_id wajib diisi untuk supervisor dan kasir.")
 
     try:
-        # Hash password (truncate to 72 bytes for bcrypt compatibility)
-        hashed_password = get_password_hash(payload.password[:72])
+        # Hash password (passlib will handle bcrypt's 72-byte limit automatically)
+        hashed_password = get_password_hash(payload.password)
         
         # Insert user ke database
         insert_query = text("""
@@ -294,7 +294,7 @@ def update_employee(user_id: str, payload: UpdateUserRequest, db: Session = Depe
         if payload.role:
             update_data["role"] = payload.role.lower()
         if payload.password:
-            update_data["hashed_password"] = get_password_hash(payload.password[:72])
+            update_data["hashed_password"] = get_password_hash(payload.password)
 
         if not update_data:
             raise HTTPException(status_code=400, detail="Tidak ada data yang diperbarui")

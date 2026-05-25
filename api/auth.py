@@ -7,12 +7,18 @@ SECRET_KEY = "kunci_rahasia_velo_super_aman_123"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # Token aktif 24 jam
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12
+)
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
+    """Hash password dengan bcrypt. Password akan otomatis truncate ke 72 bytes oleh passlib."""
     return pwd_context.hash(password)
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password dengan bcrypt."""
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(data: dict):
