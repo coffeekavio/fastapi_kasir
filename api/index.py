@@ -314,11 +314,21 @@ def delete_employee(user_id: str, db: Session = Depends(get_db)):
         )
     
 @app.get("/api/cafes", summary="Mengambil daftar kafe/cabang milik seorang Manager")
-def get_manager_cafes(manager_id: str):
+def get_manager_cafes(manager_id: str, db: Session = Depends(get_db)):
     try:
-        response = get_supabase().table("cafes").select("*").eq("manager_id", manager_id).execute()
-        return {"status": "success", "data": response.data}
+        query = text("""
+            SELECT id, name, address, manager_id, created_at 
+            FROM cafes 
+            WHERE manager_id = :manager_id
+        """)
+        results = db.execute(query, {"manager_id": manager_id}).mappings().fetchall()
+        
+        return {
+            "status": "success", 
+            "data": [dict(row) for row in results]
+        }
     except Exception as e:
+        print(f"DEBUG: Get manager cafes error - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
