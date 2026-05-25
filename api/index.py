@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
-from supabase import create_client, Client
-from typing import Optional  # Diperlukan agar tidak terjadi error NameError di Vercel
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from typing import Optional, List
 import os
-from fastapi import Header
+from database import get_db
+from auth import verify_password, create_access_token, get_password_hash
 from .routes import kategori_router, menu_router, ingredients_router, stock_opname_router, customers_router
 
 
@@ -18,7 +20,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://management-kasir.vercel.app",  # URL Produksi Vercel Anda
+        "https://management-kasir.pages.dev/",  # URL Produksi Vercel Anda
         "http://localhost:3000"                  # URL Lokal untuk development
     ],  
     allow_credentials=True,
@@ -26,15 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. INISIALISASI SUPABASE CLIENT
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-def get_supabase():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-# 3. VALIDASI SKEMA DATA (PYDANTIC MODELS)
+# 2. VALIDASI SKEMA DATA (PYDANTIC MODELS)
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -64,138 +58,100 @@ class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
 
-# 4. ENDPOINT: LOGIN EMAIL
-@app.post("/api/auth/login", summary="Login menggunakan Email dan Password Supabase")
-def login_with_supabase(payload: LoginRequest):
-    print(f"DEBUG: Login attempt - Email: {payload.email}")
+# 3. ENDPOINT: LOGIN EMAIL (UNTUK KOMPATIBILITAS)
+@app.post("/api/auth/login", summary="Login menggunakan Email dan Password")
+def login_with_email(payload: LoginRequest, db: Session = Depends(get_db)):
+    """
+    Login menggunakan email dan password.
+    Mencari user berdasarkan email di database lokal.
+    """
     try:
-        response = get_supabase().auth.sign_in_with_password({
-            "email": payload.email,
-            "password": payload.password
-        })
-        
-        user_data = response.user
-        session_data = response.session
+        # Cari user berdasarkan email
+        query = text("SELECT id, username, email, full_name, role, cafe_id, hashed_password FROM users WHERE email = :email")
+        result = db.execute(query, {"email": payload.email}).fetchone()
 
-        if not user_data or not session_data:
-            raise HTTPException(status_code=401, detail="Data autentikasi tidak valid")
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email atau password salah."
+            )
 
-        user_metadata = user_data.user_metadata if user_data.user_metadata else {}
-        user_role = user_metadata.get("role", "kasir")
-        full_name = user_metadata.get("name", "Pengguna")
-        cafe_id = user_metadata.get("cafe_id", "") 
+        # Verifikasi password
+        if not verify_password(payload.password, result.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email atau password salah."
+            )
+
+        # Buat token JWT
+        token_data = {"sub": result.email, "id": str(result.id), "role": result.role}
+        access_token = create_access_token(data=token_data)
 
         return {
             "status": "success",
             "message": "Login berhasil",
             "user": {
-                "id": user_data.id,
-                "name": full_name,
-                "email": user_data.email,
-                "role": user_role,
-                "cafe_id": cafe_id 
+                "id": result.id,
+                "email": result.email,
+                "username": result.username,
+                "name": result.full_name,
+                "role": result.role,
+                "cafe_id": result.cafe_id
             },
-            "token": session_data.access_token
+            "token": access_token
         }
+    except HTTPException as http_e:
+        raise http_e
     except Exception as e:
+        print(f"DEBUG: Login error - {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email atau password salah."
         )
 
-
-# 4B. ENDPOINT: LOGIN USERNAME
-@app.post("/api/auth/login-username", summary="Login menggunakan Username dan Password")
-def login_with_username(payload: LoginUsernameRequest):
-    print(f"DEBUG: Login attempt dengan username: {payload.username}")
-    try:
-        # PERBAIKAN 1: Tambahkan 'cafe_id' di dalam .select()
-        user_profile_response = get_supabase().table("user_profile") \
-            .select("id, username, email, full_name, role, cafe_id") \
-            .eq("username", payload.username) \
-            .execute()
-
-        if not user_profile_response.data or len(user_profile_response.data) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Username atau password salah."
-            )
-
-        user_profile = user_profile_response.data[0]
-        user_id = user_profile["id"]
-        email = user_profile.get("email")
-
-        if not email:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Data email tidak ditemukan untuk username ini."
-            )
-
-        login_response = get_supabase().auth.sign_in_with_password({
-            "email": email,
-            "password": payload.password
-        })
-
-        session_data = login_response.session
-        if not session_data:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Username atau password salah."
-            )
-
-        return {
-            "status": "success",
-            "message": "Login berhasil",
-            "user": {
-                "id": user_profile["id"],
-                "username": user_profile["username"],
-                "name": user_profile["full_name"],
-                "role": user_profile["role"],
-                "cafe_id": user_profile.get("cafe_id", "")
-            },
-            "token": session_data.access_token
-        }
-    except HTTPException as http_e:
-        raise http_e
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Username atau password salah."
-        )
-
 # 5. ENDPOINT: MEMBUAT KAFE BARU (LANGKAH 1)
 @app.post("/create-cafes", summary="Langkah 1: Membuat data kafe baru di sistem")
-def create_cafe(payload: CreateCafeRequest):
+def create_cafe(payload: CreateCafeRequest, db: Session = Depends(get_db)):
     try:
-        cafe_payload = {
+        # Insert data kafe ke database
+        insert_query = text("""
+            INSERT INTO cafes (name, address, manager_id)
+            VALUES (:name, :address, :manager_id)
+            RETURNING id, name, address, manager_id
+        """)
+        
+        result = db.execute(insert_query, {
             "name": payload.name,
             "address": payload.address,
             "manager_id": payload.manager_id
-        }
-        response = get_supabase().table("cafes").insert(cafe_payload).execute()
+        }).fetchone()
         
-        if not response.data:
+        db.commit()
+        
+        if not result:
             raise HTTPException(status_code=400, detail="Gagal menyimpan data kafe.")
-            
-        new_cafe = response.data[0]
+        
         return {
             "status": "success",
-            "message": f"Kafe '{new_cafe['name']}' berhasil didaftarkan!",
+            "message": f"Kafe '{result.name}' berhasil didaftarkan!",
             "data": {
-                "cafe_id": new_cafe["id"],
-                "cafe_name": new_cafe["name"],
-                "manager_id": new_cafe.get("manager_id")
+                "cafe_id": result.id,
+                "cafe_name": result.name,
+                "manager_id": result.manager_id
             }
         }
     except HTTPException as http_e:
+        db.rollback()
         raise http_e
     except Exception as e:
+        db.rollback()
+        print(f"DEBUG: Create cafe error - {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
 # 6. ENDPOINT: PEMBUATAN USER (LANGKAH 2)
 @app.post("/create-user", summary="Langkah 2: Membuat akun user (Manager/Supervisor/Kasir)")
-def create_user(payload: CreateUserRequest):
+def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
     role_lower = payload.role.lower()
     if role_lower not in ["manager", "supervisor", "kasir"]:
         raise HTTPException(status_code=400, detail="Role tidak valid.")
@@ -205,106 +161,120 @@ def create_user(payload: CreateUserRequest):
         raise HTTPException(status_code=400, detail="cafe_id wajib diisi untuk supervisor dan kasir.")
 
     try:
-        # A. Daftarkan akun ke Supabase Auth
-        user_metadata = {
-            "name": payload.full_name,
-            "role": role_lower,
-        }
-        if payload.cafe_id:
-            user_metadata["cafe_id"] = payload.cafe_id
-            
-        auth_response = get_supabase().auth.admin.create_user({
-            "email": payload.email,
-            "password": payload.password,
-            "email_confirm": True,
-            "user_metadata": user_metadata
-        })
-
-        user = auth_response.user
-        if not user:
-            raise HTTPException(status_code=400, detail="Gagal membuat akun autentikasi.")
-
-        # B. Simpan data profil ke tabel user_profile
-        profile_data = {
-            "id": user.id,
+        # Hash password
+        hashed_password = get_password_hash(payload.password)
+        
+        # Insert user ke database
+        insert_query = text("""
+            INSERT INTO users (email, username, full_name, role, cafe_id, hashed_password)
+            VALUES (:email, :username, :full_name, :role, :cafe_id, :hashed_password)
+            RETURNING id, username, email, full_name, role, cafe_id
+        """)
+        
+        result = db.execute(insert_query, {
             "email": payload.email,
             "username": payload.username,
             "full_name": payload.full_name,
             "role": role_lower,
-            "cafe_id": payload.cafe_id  # Akan None jika tidak diisi (untuk manager)
-        }
-        get_supabase().table("user_profile").insert(profile_data).execute()
+            "cafe_id": payload.cafe_id,
+            "hashed_password": hashed_password
+        }).fetchone()
+        
+        db.commit()
+        
+        if not result:
+            raise HTTPException(status_code=400, detail="Gagal membuat akun pengguna.")
 
         return {
             "status": "success",
             "message": f"Akun dengan role '{role_lower}' berhasil dibuat!",
             "data": {
-                "user_id": user.id,
-                "username": payload.username,
+                "user_id": result.id,
+                "username": result.username,
+                "email": result.email,
                 "role": role_lower,
-                "cafe_id": payload.cafe_id
+                "cafe_id": result.cafe_id
             }
         }
     except HTTPException as http_e:
+        db.rollback()
         raise http_e
     except Exception as e:
+        db.rollback()
+        print(f"DEBUG: Create user error - {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/users")
-def get_employees(cafe_id: str):
+def get_employees(cafe_id: str, db: Session = Depends(get_db)):
     try:
-        response = get_supabase().table("user_profile") \
-            .select("*") \
-            .eq("cafe_id", cafe_id) \
-            .execute()
-            
-        filtered_data = [
-            emp for emp in response.data 
-            if emp.get("role", "").lower() in ["supervisor", "kasir"]
-        ]
-        return {"status": "success", "data": filtered_data}
+        # Query untuk mendapatkan karyawan (supervisor dan kasir) berdasarkan cafe_id
+        query = text("""
+            SELECT id, username, email, full_name, role, cafe_id, created_at
+            FROM users
+            WHERE cafe_id = :cafe_id AND role IN ('supervisor', 'kasir')
+            ORDER BY created_at DESC
+        """)
+        
+        results = db.execute(query, {"cafe_id": cafe_id}).mappings().fetchall()
+        
+        return {
+            "status": "success",
+            "data": [dict(row) for row in results]
+        }
     except Exception as e:
+        print(f"DEBUG: Get employees error - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # 7. ENDPOINT: EDIT DATA KARYAWAN
 @app.put("/api/users/{user_id}", summary="Memperbarui data akun karyawan")
-def update_employee(user_id: str, payload: UpdateUserRequest):
+def update_employee(user_id: str, payload: UpdateUserRequest, db: Session = Depends(get_db)):
     try:
-        # A. Update data Auth di Supabase (jika data opsional diisi)
-        auth_updates = {}
-        if payload.email:
-            auth_updates["email"] = payload.email
-        if payload.password:
-            auth_updates["password"] = payload.password
-        if payload.full_name or payload.role:
-            auth_updates["user_metadata"] = {}
-            if payload.full_name:
-                auth_updates["user_metadata"]["name"] = payload.full_name
-            if payload.role:
-                auth_updates["user_metadata"]["role"] = payload.role.lower()
-
-        if auth_updates:
-            get_supabase().auth.admin.update_user_by_id(user_id, auth_updates)
-
-        # B. Update data di tabel database user_profile
-        profile_updates = {}
+        # Build update query dinamis berdasarkan field yang diisi
+        update_data = {}
+        
         if payload.username:
-            profile_updates["username"] = payload.username
+            update_data["username"] = payload.username
         if payload.full_name:
-            profile_updates["full_name"] = payload.full_name
+            update_data["full_name"] = payload.full_name
+        if payload.email:
+            update_data["email"] = payload.email
         if payload.role:
-            profile_updates["role"] = payload.role.lower()
+            update_data["role"] = payload.role.lower()
+        if payload.password:
+            update_data["hashed_password"] = get_password_hash(payload.password)
 
-        if profile_updates:
-            get_supabase().table("user_profile").update(profile_updates).eq("id", user_id).execute()
+        if not update_data:
+            raise HTTPException(status_code=400, detail="Tidak ada data yang diperbarui")
+
+        # Build SQL update statement
+        set_clause = ", ".join([f"{key} = :{key}" for key in update_data.keys()])
+        update_query = text(f"""
+            UPDATE users
+            SET {set_clause}
+            WHERE id = :id
+            RETURNING id, username, email, full_name, role, cafe_id
+        """)
+        
+        update_data["id"] = user_id
+        result = db.execute(update_query, update_data).fetchone()
+        db.commit()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="User tidak ditemukan")
 
         return {
             "status": "success",
-            "message": "Data karyawan berhasil diperbarui"
+            "message": "Data karyawan berhasil diperbarui",
+            "data": dict(result._mapping) if result else None
         }
+    except HTTPException as http_e:
+        db.rollback()
+        raise http_e
     except Exception as e:
+        db.rollback()
+        print(f"DEBUG: Update employee error - {str(e)}")
         raise HTTPException(
             status_code=400,
             detail=f"Gagal memperbarui data: {str(e)}"
@@ -313,13 +283,30 @@ def update_employee(user_id: str, payload: UpdateUserRequest):
 
 # 8. ENDPOINT: HAPUS AKUN KARYAWAN
 @app.delete("/api/users/{user_id}", summary="Menghapus akun karyawan dari sistem")
-def delete_employee(user_id: str):
+def delete_employee(user_id: str, db: Session = Depends(get_db)):
     try:
-        get_supabase().auth.admin.delete_user(user_id)
+        delete_query = text("DELETE FROM users WHERE id = :id")
+        result = db.execute(delete_query, {"id": user_id})
+        db.commit()
+        
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="User tidak ditemukan")
+        
         return {
             "status": "success",
             "message": "Akun karyawan berhasil dihapus dari sistem"
         }
+    except HTTPException as http_e:
+        db.rollback()
+        raise http_e
+    except Exception as e:
+        db.rollback()
+        print(f"DEBUG: Delete employee error - {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gagal menghapus akun: {str(e)}"
+        )
+        
     except Exception as e:
         raise HTTPException(
             status_code=400,

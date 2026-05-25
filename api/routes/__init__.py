@@ -8,6 +8,6 @@ __all__ = [
     "kategori_router",
     "menu_router",
     "ingredients_router",
-    "stock_opname_router"
+    "stock_opname_router",
     "customers_router"
 ]
