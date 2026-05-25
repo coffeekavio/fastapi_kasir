@@ -20,7 +20,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://management-kasir.pages.dev/",  # URL Produksi Vercel Anda
+        "https://management-kasir.pages.dev",  # URL Produksi Vercel Anda
         "http://localhost:3000"                  # URL Lokal untuk development
     ],  
     allow_credentials=True,
