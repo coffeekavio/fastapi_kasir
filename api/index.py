@@ -215,10 +215,10 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
         # Hash password (passlib will handle bcrypt's 72-byte limit automatically)
         hashed_password = get_password_hash(payload.password)
         
-        # Insert user ke database
+        # Insert user ke database dengan ID otomatis
         insert_query = text("""
-            INSERT INTO users (email, username, full_name, role, cafe_id, hashed_password)
-            VALUES (:email, :username, :full_name, :role, :cafe_id, :hashed_password)
+            INSERT INTO users (id, email, username, full_name, role, cafe_id, hashed_password)
+            VALUES (gen_random_uuid(), :email, :username, :full_name, :role, :cafe_id, :hashed_password)
             RETURNING id, username, email, full_name, role, cafe_id
         """)
         
