@@ -17,7 +17,7 @@ jobs:
       with:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USERNAME }}
-        password: ${{ secrets.VPS_PASSWORD }}
+        key: ${{ secrets.VPS_SSH_KEY }}
         
         # 3. Rentetan perintah yang dieksekusi di dalam VPS
         script: |
