@@ -150,7 +150,7 @@ async def create_category(kategori: KategoriCreate, db: Session = Depends(get_db
 
 
 # PUT update category
-@router.put("/{kategori_id}", response_model=ApiResponse)
+@router.put("/update/{kategori_id}", response_model=ApiResponse)
 async def update_category(kategori_id: str, cafe_id: str, kategori: KategoriUpdate, db: Session = Depends(get_db)):
     try:
         # Verify kategori exists and belongs to cafe
@@ -210,7 +210,7 @@ async def update_category(kategori_id: str, cafe_id: str, kategori: KategoriUpda
 
 
 # DELETE category
-@router.delete("/{kategori_id}", response_model=ApiResponse)
+@router.delete("/delete/{kategori_id}", response_model=ApiResponse)
 async def delete_category(kategori_id: str, cafe_id: str, db: Session = Depends(get_db)):
     try:
         # Verify kategori exists and belongs to cafe
