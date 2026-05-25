@@ -14,12 +14,14 @@ pwd_context = CryptContext(
 )
 
 def get_password_hash(password: str) -> str:
-    """Hash password dengan bcrypt. Password akan otomatis truncate ke 72 bytes oleh passlib."""
-    return pwd_context.hash(password)
+    """Hash password dengan bcrypt. Memotong otomatis ke 72 karakter untuk mencegah error."""
+    # Menambahkan [:72] untuk memastikan password tidak lebih dari 72 karakter
+    return pwd_context.hash(password[:72])
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password dengan bcrypt."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify password dengan bcrypt. Memotong plain_password ke 72 karakter juga."""
+    # Menambahkan [:72] agar teks yang dicocokkan sama panjangnya
+    return pwd_context.verify(plain_password[:72], hashed_password)
 
 def create_access_token(data: dict):
     to_encode = data.copy()
