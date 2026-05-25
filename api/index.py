@@ -109,6 +109,57 @@ def login_with_email(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="Email atau password salah."
         )
 
+# 4. ENDPOINT: LOGIN USERNAME
+@app.post("/api/auth/login-username", summary="Login menggunakan Username dan Password")
+def login_with_username(payload: LoginUsernameRequest, db: Session = Depends(get_db)):
+    """
+    Login menggunakan username dan password.
+    Mencari user berdasarkan username di database lokal.
+    """
+    try:
+        # Cari user berdasarkan username
+        query = text("SELECT id, username, email, full_name, role, cafe_id, hashed_password FROM users WHERE username = :username")
+        result = db.execute(query, {"username": payload.username}).fetchone()
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Username atau password salah."
+            )
+
+        # Verifikasi password
+        if not verify_password(payload.password, result.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Username atau password salah."
+            )
+
+        # Buat token JWT
+        token_data = {"sub": result.username, "id": str(result.id), "role": result.role}
+        access_token = create_access_token(data=token_data)
+
+        return {
+            "status": "success",
+            "message": "Login berhasil",
+            "user": {
+                "id": result.id,
+                "username": result.username,
+                "email": result.email,
+                "name": result.full_name,
+                "role": result.role,
+                "cafe_id": result.cafe_id
+            },
+            "token": access_token
+        }
+    except HTTPException as http_e:
+        raise http_e
+    except Exception as e:
+        print(f"DEBUG: Login username error - {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Username atau password salah."
+        )
+
 # 5. ENDPOINT: MEMBUAT KAFE BARU (LANGKAH 1)
 @app.post("/create-cafes", summary="Langkah 1: Membuat data kafe baru di sistem")
 def create_cafe(payload: CreateCafeRequest, db: Session = Depends(get_db)):
@@ -306,13 +357,7 @@ def delete_employee(user_id: str, db: Session = Depends(get_db)):
             status_code=400,
             detail=f"Gagal menghapus akun: {str(e)}"
         )
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Gagal menghapus akun: {str(e)}"
-        )
-    
+
 @app.get("/api/cafes", summary="Mengambil daftar kafe/cabang milik seorang Manager")
 def get_manager_cafes(manager_id: str, db: Session = Depends(get_db)):
     try:
