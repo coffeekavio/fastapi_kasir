@@ -34,8 +34,14 @@ class KategoriResponse(BaseModel):
         from_attributes = True
 
 
+class ApiResponse(BaseModel):
+    status: str
+    data: Optional[dict | list] = None
+    detail: Optional[str] = None
+
+
 # GET all categories by cafe_id
-@router.get("/", response_model=List[KategoriResponse])
+@router.get("/", response_model=ApiResponse)
 async def get_all_categories(cafe_id: str, db: Session = Depends(get_db)):
     try:
         query = text("""
@@ -46,7 +52,10 @@ async def get_all_categories(cafe_id: str, db: Session = Depends(get_db)):
         """)
         
         results = db.execute(query, {"cafe_id": cafe_id}).mappings().fetchall()
-        return [dict(row) for row in results]
+        return ApiResponse(
+            status="success",
+            data=[dict(row) for row in results]
+        )
     except Exception as e:
         print(f"DEBUG: Get categories error - {str(e)}")
         raise HTTPException(
@@ -56,7 +65,7 @@ async def get_all_categories(cafe_id: str, db: Session = Depends(get_db)):
 
 
 # GET category by id
-@router.get("/{kategori_id}", response_model=KategoriResponse)
+@router.get("/{kategori_id}", response_model=ApiResponse)
 async def get_category(kategori_id: str, cafe_id: str, db: Session = Depends(get_db)):
     try:
         query = text("""
@@ -72,7 +81,10 @@ async def get_category(kategori_id: str, cafe_id: str, db: Session = Depends(get
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Kategori tidak ditemukan"
             )
-        return dict(result)
+        return ApiResponse(
+            status="success",
+            data=dict(result)
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -84,9 +96,11 @@ async def get_category(kategori_id: str, cafe_id: str, db: Session = Depends(get
 
 
 # POST create new category
-@router.post("/", response_model=KategoriResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/category-create", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
 async def create_category(kategori: KategoriCreate, db: Session = Depends(get_db)):
     try:
+        print(f"DEBUG: Creating category - cafe_id: {kategori.cafe_id}, name: {kategori.name}")
+        
         # Verify cafe exists
         cafe_check = text("SELECT id FROM cafes WHERE id = :cafe_id")
         cafe_result = db.execute(cafe_check, {"cafe_id": kategori.cafe_id}).fetchone()
@@ -117,7 +131,12 @@ async def create_category(kategori: KategoriCreate, db: Session = Depends(get_db
                 detail="Gagal membuat kategori"
             )
         
-        return dict(result)
+        print(f"DEBUG: Category created successfully - {dict(result)}")
+        return ApiResponse(
+            status="success",
+            data=dict(result),
+            detail="Kategori berhasil dibuat"
+        )
     except HTTPException:
         db.rollback()
         raise
@@ -131,7 +150,7 @@ async def create_category(kategori: KategoriCreate, db: Session = Depends(get_db
 
 
 # PUT update category
-@router.put("/{kategori_id}", response_model=KategoriResponse)
+@router.put("/{kategori_id}", response_model=ApiResponse)
 async def update_category(kategori_id: str, cafe_id: str, kategori: KategoriUpdate, db: Session = Depends(get_db)):
     try:
         # Verify kategori exists and belongs to cafe
@@ -174,7 +193,10 @@ async def update_category(kategori_id: str, cafe_id: str, kategori: KategoriUpda
                 detail="Gagal memperbarui kategori"
             )
         
-        return dict(result)
+        return ApiResponse(
+            status="success",
+            data=dict(result)
+        )
     except HTTPException:
         db.rollback()
         raise
@@ -188,7 +210,7 @@ async def update_category(kategori_id: str, cafe_id: str, kategori: KategoriUpda
 
 
 # DELETE category
-@router.delete("/{kategori_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{kategori_id}", response_model=ApiResponse)
 async def delete_category(kategori_id: str, cafe_id: str, db: Session = Depends(get_db)):
     try:
         # Verify kategori exists and belongs to cafe
@@ -209,7 +231,10 @@ async def delete_category(kategori_id: str, cafe_id: str, db: Session = Depends(
         db.execute(delete_query, {"id": kategori_id})
         db.commit()
         
-        return None
+        return ApiResponse(
+            status="success",
+            detail="Kategori berhasil dihapus"
+        )
     except HTTPException:
         db.rollback()
         raise
@@ -220,3 +245,4 @@ async def delete_category(kategori_id: str, cafe_id: str, db: Session = Depends(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete kategori: {str(e)}"
         )
+
