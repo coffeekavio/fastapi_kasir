@@ -64,7 +64,7 @@ def get_all_menus(cafe_id: str, db: Session = Depends(get_db)):
         print(f"DEBUG: Get menus error - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/")
+@router.post("/create-menus")
 def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
     try:
         # 1. Simpan Menu Utama
