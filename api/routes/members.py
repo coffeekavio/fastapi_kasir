@@ -17,6 +17,13 @@ class MemberCreate(BaseModel):
     phone: Optional[str] = Field(None, description="Nomor telepon member")
     points: int = Field(default=0, ge=0, description="Poin awal member")
 
+class MemberSettingsPayload(BaseModel):
+    cafe_id: str = Field(..., description="ID kafe untuk pengaturan ini")
+    earning_amount: int = Field(default=10000, description="Kelipatan belanja untuk dapat poin")
+    earning_points: int = Field(default=1, description="Jumlah poin yang didapat")
+    redemption_points: int = Field(default=100, description="Poin yang dibutuhkan untuk diskon")
+    redemption_discount: int = Field(default=10, description="Persentase diskon (%)")
+
 class MemberUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, description="Nama member")
     phone: Optional[str] = Field(None, description="Nomor telepon")
@@ -303,3 +310,90 @@ def delete_member(member_id: str, db: Session = Depends(get_db)):
         db.rollback()
         print(f"DEBUG: Delete member error - {str(e)}")
         raise HTTPException(status_code=400, detail=f"Gagal menghapus member: {str(e)}")
+    
+
+# ==================================================
+# ENDPOINTS: MEMBER SETTINGS (LOYALTY PROGRAM)
+# ==================================================
+
+# 7. GET: Ambil pengaturan loyalty berdasarkan cafe_id
+@router.get("/api/member-settings/{cafe_id}", summary="Ambil pengaturan loyalty kafe")
+def get_member_settings(cafe_id: str, db: Session = Depends(get_db)):
+    """
+    Mengambil aturan poin dan diskon untuk kafe tertentu.
+    Jika belum ada, akan mengembalikan nilai default.
+    """
+    try:
+        query = text("""
+            SELECT id, cafe_id, earning_amount, earning_points, redemption_points, redemption_discount, updated_at
+            FROM member_settings
+            WHERE cafe_id = :cafe_id
+        """)
+        
+        result = db.execute(query, {"cafe_id": cafe_id}).mappings().fetchone()
+        
+        if result:
+            return {
+                "status": "success",
+                "data": dict(result)
+            }
+        else:
+            # Kembalikan nilai default jika manajer belum pernah mengatur
+            return {
+                "status": "success",
+                "data": {
+                    "cafe_id": cafe_id,
+                    "earning_amount": 10000,
+                    "earning_points": 1,
+                    "redemption_points": 100,
+                    "redemption_discount": 10
+                }
+            }
+    except Exception as e:
+        print(f"DEBUG: Get member settings error - {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Gagal mengambil pengaturan: {str(e)}")
+
+
+# 8. POST: Simpan atau Update pengaturan loyalty (UPSERT)
+@router.post("/api/member-settings", summary="Simpan/Update pengaturan loyalty")
+def save_member_settings(payload: MemberSettingsPayload, db: Session = Depends(get_db)):
+    """
+    Menyimpan aturan baru atau menimpa aturan lama (UPSERT).
+    """
+    try:
+        # Teknik UPSERT (Insert, jika cafe_id sudah ada maka Update)
+        upsert_query = text("""
+            INSERT INTO member_settings (cafe_id, earning_amount, earning_points, redemption_points, redemption_discount)
+            VALUES (:cafe_id, :earning_amount, :earning_points, :redemption_points, :redemption_discount)
+            ON CONFLICT (cafe_id) 
+            DO UPDATE SET 
+                earning_amount = EXCLUDED.earning_amount,
+                earning_points = EXCLUDED.earning_points,
+                redemption_points = EXCLUDED.redemption_points,
+                redemption_discount = EXCLUDED.redemption_discount,
+                updated_at = NOW()
+            RETURNING id, cafe_id, earning_amount, earning_points, redemption_points, redemption_discount
+        """)
+        
+        result = db.execute(upsert_query, {
+            "cafe_id": payload.cafe_id,
+            "earning_amount": payload.earning_amount,
+            "earning_points": payload.earning_points,
+            "redemption_points": payload.redemption_points,
+            "redemption_discount": payload.redemption_discount
+        }).fetchone()
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Pengaturan loyalty berhasil disimpan",
+            "data": dict(result._mapping) if result else None
+        }
+    except HTTPException as http_e:
+        db.rollback()
+        raise http_e
+    except Exception as e:
+        db.rollback()
+        print(f"DEBUG: Save member settings error - {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Gagal menyimpan pengaturan: {str(e)}")
