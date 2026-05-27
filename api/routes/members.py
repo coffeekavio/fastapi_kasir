@@ -275,7 +275,7 @@ def delete_member(member_id: str, db: Session = Depends(get_db)):
     """
     try:
         # Ambil data member sebelum dihapus untuk audit trail
-        get_query = text("SELECT id, name, email, phone, points, created_at FROM members WHERE id = :id")
+        get_query = text("SELECT id, name, phone, points, created_at FROM members WHERE id = :id")
         member_data = db.execute(get_query, {"id": member_id}).fetchone()
         
         if not member_data:
@@ -338,7 +338,6 @@ def get_member_settings(cafe_id: str, db: Session = Depends(get_db)):
                 "data": dict(result)
             }
         else:
-            # Kembalikan nilai default jika manajer belum pernah mengatur
             return {
                 "status": "success",
                 "data": {
