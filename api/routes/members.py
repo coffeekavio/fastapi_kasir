@@ -397,3 +397,82 @@ def save_member_settings(payload: MemberSettingsPayload, db: Session = Depends(g
         db.rollback()
         print(f"DEBUG: Save member settings error - {str(e)}")
         raise HTTPException(status_code=400, detail=f"Gagal menyimpan pengaturan: {str(e)}")
+
+
+# 9. POST: Initialize default member settings untuk SEMUA cafe
+@router.post("/api/member-settings/initialize/all", summary="Initialize default settings untuk semua cafe")
+def initialize_all_cafe_settings(db: Session = Depends(get_db)):
+    """
+    Menginisialisasi pengaturan loyalty default untuk semua cafe.
+    Default: Earning Rp 10.000 = 1 poin, Redemption 100 poin = 10% diskon
+    
+    Endpoint ini akan:
+    1. Ambil semua cafe yang ada di database
+    2. Insert default member_settings untuk cafe yang belum punya
+    3. Return summary berapa cafe yang sudah initialized
+    """
+    try:
+        # Ambil semua cafe_id yang ada
+        all_cafes = text("SELECT id FROM cafes")
+        cafe_ids = db.execute(all_cafes).fetchall()
+        
+        if not cafe_ids:
+            raise HTTPException(status_code=404, detail="Tidak ada cafe di sistem")
+        
+        default_settings = {
+            "earning_amount": 10000,
+            "earning_points": 1,
+            "redemption_points": 100,
+            "redemption_discount": 10
+        }
+        
+        # UPSERT default settings untuk semua cafe
+        upsert_query = text("""
+            INSERT INTO member_settings (cafe_id, earning_amount, earning_points, redemption_points, redemption_discount)
+            VALUES (:cafe_id, :earning_amount, :earning_points, :redemption_points, :redemption_discount)
+            ON CONFLICT (cafe_id) 
+            DO UPDATE SET 
+                earning_amount = EXCLUDED.earning_amount,
+                earning_points = EXCLUDED.earning_points,
+                redemption_points = EXCLUDED.redemption_points,
+                redemption_discount = EXCLUDED.redemption_discount,
+                updated_at = NOW()
+            RETURNING cafe_id
+        """)
+        
+        initialized_count = 0
+        initialized_cafes = []
+        
+        for cafe in cafe_ids:
+            cafe_id = cafe.id
+            result = db.execute(upsert_query, {
+                "cafe_id": cafe_id,
+                **default_settings
+            }).fetchone()
+            
+            if result:
+                initialized_count += 1
+                initialized_cafes.append(cafe_id)
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Default settings berhasil di-initialize untuk {initialized_count} cafe",
+            "data": {
+                "total_cafes_initialized": initialized_count,
+                "initialized_cafe_ids": initialized_cafes,
+                "default_settings": default_settings,
+                "settings_description": {
+                    "earning_rule": "Setiap transaksi Rp 10.000 mendapat 1 poin",
+                    "redemption_rule": "100 poin dapat ditukar dengan diskon 10%"
+                }
+            }
+        }
+    except HTTPException as http_e:
+        db.rollback()
+        raise http_e
+    except Exception as e:
+        db.rollback()
+        print(f"DEBUG: Initialize all cafe settings error - {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Gagal initialize settings: {str(e)}")

@@ -177,18 +177,48 @@ def create_cafe(payload: CreateCafeRequest, db: Session = Depends(get_db)):
             "manager_id": payload.manager_id
         }).fetchone()
         
-        db.commit()
-        
         if not result:
             raise HTTPException(status_code=400, detail="Gagal menyimpan data kafe.")
         
+        cafe_id = result.id
+        
+        # AUTO-INSERT DEFAULT MEMBER SETTINGS untuk cafe yang baru dibuat
+        # Default: Rp 10.000 = 1 poin, 100 poin = 10% diskon
+        try:
+            default_settings_query = text("""
+                INSERT INTO member_settings (cafe_id, earning_amount, earning_points, redemption_points, redemption_discount)
+                VALUES (:cafe_id, :earning_amount, :earning_points, :redemption_points, :redemption_discount)
+                ON CONFLICT (cafe_id) 
+                DO NOTHING
+            """)
+            
+            db.execute(default_settings_query, {
+                "cafe_id": cafe_id,
+                "earning_amount": 10000,
+                "earning_points": 1,
+                "redemption_points": 100,
+                "redemption_discount": 10
+            })
+            
+            db.commit()
+        except Exception as settings_error:
+            print(f"DEBUG: Auto-insert member settings error - {str(settings_error)}")
+            # Jangan fail jika settings gagal, cafe tetap dibuat
+        
         return {
             "status": "success",
-            "message": f"Kafe '{result.name}' berhasil didaftarkan!",
+            "message": f"Kafe '{result.name}' berhasil didaftarkan dengan default member settings!",
             "data": {
                 "cafe_id": result.id,
                 "cafe_name": result.name,
-                "manager_id": result.manager_id
+                "manager_id": result.manager_id,
+                "member_settings": {
+                    "earning_amount": 10000,
+                    "earning_points": 1,
+                    "redemption_points": 100,
+                    "redemption_discount": 10,
+                    "description": "Setiap Rp 10.000 belanja = 1 poin | 100 poin = 10% diskon"
+                }
             }
         }
     except HTTPException as http_e:
