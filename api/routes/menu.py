@@ -20,6 +20,7 @@ class CreateMenuRequest(BaseModel):
     price: int
     is_available: bool = True
     track_stock: bool = False
+    is_favorite: Optional[bool] = False
     recipe: Optional[List[RecipeInput]] = []
 
 class UpdateMenuRequest(BaseModel):
@@ -29,6 +30,7 @@ class UpdateMenuRequest(BaseModel):
     price: Optional[int] = None
     is_available: Optional[bool] = None
     track_stock: Optional[bool] = None
+    is_favorite: Optional[bool] = None
     recipe: Optional[List[RecipeInput]] = None
 
 @router.get("/")
@@ -36,7 +38,7 @@ def get_all_menus(cafe_id: str, db: Session = Depends(get_db)):
     try:
         # Mengambil menu
         query = text("""
-            SELECT id, cafe_id, category_id, name, description, price, is_available, track_stock, created_at
+            SELECT id, cafe_id, category_id, name, description, price, is_available, track_stock, is_favorite, created_at
             FROM menus
             WHERE cafe_id = :cafe_id
             ORDER BY created_at DESC
@@ -69,8 +71,8 @@ def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
     try:
         # 1. Simpan Menu Utama
         insert_menu_query = text("""
-            INSERT INTO menus (cafe_id, category_id, name, description, price, is_available, track_stock, created_at)
-            VALUES (:cafe_id, :category_id, :name, :description, :price, :is_available, :track_stock, NOW())
+            INSERT INTO menus (cafe_id, category_id, name, description, price, is_available, track_stock, is_favorite, created_at)
+            VALUES (:cafe_id, :category_id, :name, :description, :price, :is_available, :track_stock, :is_favorite, NOW())
             RETURNING id
         """)
         
@@ -81,7 +83,8 @@ def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
             "description": payload.description,
             "price": payload.price,
             "is_available": payload.is_available,
-            "track_stock": payload.track_stock
+            "track_stock": payload.track_stock,
+            "is_favorite": payload.is_favorite
         }).fetchone()
         
         new_menu_id = menu_result[0]
