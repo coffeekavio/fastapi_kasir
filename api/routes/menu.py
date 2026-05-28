@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional, List
 from database import get_db
+from ..websockets import manager
 
 router = APIRouter(prefix="/api/menus", tags=["Menu Produk"])
 
@@ -65,7 +66,7 @@ def get_all_menus(cafe_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/create-menus")
-def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
+async def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
     try:
         # 1. Simpan Menu Utama
         insert_menu_query = text("""
@@ -100,6 +101,7 @@ def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
                 })
 
         db.commit()
+        await manager.broadcast("REFRESH_MENU")
         return {"status": "success", "message": "Menu berhasil dirilis!"}
     except Exception as e:
         db.rollback()
@@ -107,7 +109,7 @@ def create_menu(payload: CreateMenuRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{menu_id}")
-def update_menu(menu_id: str, payload: UpdateMenuRequest, db: Session = Depends(get_db)):
+async def update_menu(menu_id: str, payload: UpdateMenuRequest, db: Session = Depends(get_db)):
     try:
         # Persiapkan data yang akan diupdate (hanya field yang tidak None)
         update_data = {k: v for k, v in payload.dict().items() if v is not None and k != "recipe"}
@@ -142,6 +144,7 @@ def update_menu(menu_id: str, payload: UpdateMenuRequest, db: Session = Depends(
                     })
         
         db.commit()
+        await manager.broadcast("REFRESH_MENU")
         return {"status": "success", "message": "Menu berhasil diperbarui!"}
     except Exception as e:
         db.rollback()
@@ -149,12 +152,13 @@ def update_menu(menu_id: str, payload: UpdateMenuRequest, db: Session = Depends(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{menu_id}")
-def delete_menu(menu_id: str, db: Session = Depends(get_db)):
+async def delete_menu(menu_id: str, db: Session = Depends(get_db)):
     try:
         # Menghapus resep otomatis akan terjadi berkat ON DELETE CASCADE di database
         delete_query = text("DELETE FROM menus WHERE id = :id")
         result = db.execute(delete_query, {"id": menu_id})
         db.commit()
+        await manager.broadcast("REFRESH_MENU")
         
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Menu tidak ditemukan")
