@@ -15,7 +15,7 @@ from ..websockets import manager # Untuk update layar kasir otomatis
 router = APIRouter(prefix="/api/transactions", tags=["Transaksi"])
 
 # --- GANTI DENGAN SECRET KEY XENDIT ANDA (DARI DASHBOARD) ---
-XENDIT_SECRET_KEY = "xnd_test_masukkan_kunci_anda_disini"
+XENDIT_SECRET_KEY = "xnd_development_eJdk8FRAcnHpty49I9dZlxIY0h5ocSurbGwEeqLNn1k4uWBOQcXeNW3xO14PHo"
 
 def get_xendit_headers():
     auth_str = f"{XENDIT_SECRET_KEY}:"
