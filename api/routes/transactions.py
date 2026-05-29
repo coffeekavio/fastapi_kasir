@@ -157,17 +157,28 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
 # ==========================================
 # 3. ENDPOINT: WEBHOOK XENDIT (Jantung Otomatisasi)
 # ==========================================
-async def process_successful_payment(transaction_id: str, db: Session):
+async def process_webhook_status(transaction_id: str, status: str, db: Session):
     try:
-        # Ubah status dari pending menjadi completed
-        db.execute(text("UPDATE transactions SET status = 'completed' WHERE id = :id"), {"id": transaction_id})
-        
-        # TODO Nanti: Logika potong stok resep & tambah poin member ditaruh di sini
-        
-        db.commit()
-        # Beri sinyal ke Flutter bahwa pembayaran sukses!
-        await manager.broadcast(f"PAYMENT_SUCCESS_{transaction_id}")
+        if status == "PAID":
+            # Ubah status menjadi completed
+            db.execute(text("UPDATE transactions SET status = 'completed' WHERE id = :id"), {"id": transaction_id})
+            db.commit()
+
+            # Beri sinyal ke Flutter bahwa pembayaran sukses!
+            await manager.broadcast(f"PAYMENT_SUCCESS_{transaction_id}")
+            print(f"Transaksi {transaction_id} LUNAS.")
+
+        elif status == "EXPIRED":
+            # Ubah status menjadi cancelled karena invoice kedaluwarsa
+            db.execute(text("UPDATE transactions SET status = 'cancelled' WHERE id = :id"), {"id": transaction_id})
+            db.commit()
+
+            # Beri sinyal ke Flutter agar kasir tahu pesanan hangus
+            await manager.broadcast(f"PAYMENT_EXPIRED_{transaction_id}")
+            print(f"Transaksi {transaction_id} KEDALUWARSA (Dibatalkan).")
+
     except Exception as e:
+        db.rollback()
         print(f"Error background proses webhook: {e}")
 
 @router.post("/xendit-webhook", summary="Penerima Notifikasi Pembayaran dari Xendit")
@@ -175,10 +186,11 @@ async def xendit_webhook(request: Request, background_tasks: BackgroundTasks, db
     payload = await request.json()
     
     external_id = payload.get("external_id") # Ini berisi transaction_id
-    status = payload.get("status")
+    status = payload.get("status") # Bisa "PAID" atau "EXPIRED"
     
-    if status == "PAID":
-        # Jangan ditunggu, jalankan di background agar respon ke Xendit secepat kilat!
-        background_tasks.add_task(process_successful_payment, external_id, db)
+    # Jika statusnya PAID (Lunas) atau EXPIRED (Hangus)
+    if status in ["PAID", "EXPIRED"]:
+        # Jalankan di background agar respon ke Xendit secepat mungkin
+        background_tasks.add_task(process_webhook_status, external_id, status, db)
         
     return {"status": "success"} # Balas OK secepatnya ke Xendit
