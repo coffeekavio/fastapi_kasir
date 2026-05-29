@@ -8,7 +8,7 @@ import os
 from database import get_db
 from .auth import verify_password, create_access_token, get_password_hash
 from .routes import kategori_router, menu_router, ingredients_router, stock_opname_router, members_router, vouchers_router, transactions_router
-
+from .websockets import router as websocket_router
 
 app = FastAPI(
     title="Management Karyawan API",
@@ -415,3 +415,4 @@ app.include_router(stock_opname_router)
 app.include_router(members_router)
 app.include_router(vouchers_router)
 app.include_router(transactions_router)
+app.include_router(websocket_router, prefix="/api")
