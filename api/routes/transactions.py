@@ -10,7 +10,7 @@ from sqlalchemy import text
 from typing import List, Optional
 
 from database import get_db
-from api.websockets import manager # Untuk update layar kasir otomatis
+from ..websockets import manager # Untuk update layar kasir otomatis
 
 router = APIRouter(prefix="/api/transactions", tags=["Transaksi"])
 
