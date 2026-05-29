@@ -4,6 +4,7 @@ from .ingredients import router as ingredients_router
 from .stock_opname import router as stock_opname_router
 from .members import router as members_router
 from .vouchers import router as vouchers_router
+from .transactions import router as transactions_router
 
 __all__ = [
     "kategori_router",
@@ -12,4 +13,5 @@ __all__ = [
     "stock_opname_router",
     "members_router",
     "vouchers_router"
+    "transactions_router"
 ]

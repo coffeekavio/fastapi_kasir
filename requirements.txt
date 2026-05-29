@@ -7,3 +7,4 @@ psycopg2-binary
 passlib[bcrypt]>=1.7.4
 python-jose[cryptography]
 bcrypt==4.3.0
+xendit-python
