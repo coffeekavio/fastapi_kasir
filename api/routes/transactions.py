@@ -44,16 +44,16 @@ class TransactionCreate(BaseModel):
     cashier_id: str
     member_id: Optional[str] = None
     voucher_id: Optional[str] = None
-    payment_method: str = Field(..., description="'cash' atau 'xendit'")
+    payment_method: str = Field(..., description="'cash', 'xendit', atau 'qris_static'")
     amount_tendered: int
     discount_amount: int = 0
     voucher_discount_amount: int = 0
     items: List[TransactionItemCreate]
 
 # ==========================================
-# 2. ENDPOINT: CHECKOUT (BUAT TRANSAKSI & INVOICE XENDIT)
+# 2. ENDPOINT: CHECKOUT (BUAT TRANSAKSI)
 # ==========================================
-@router.post("/checkout", summary="Proses Checkout (Bisa Cash atau Xendit)")
+@router.post("/checkout", summary="Proses Checkout (Cash atau QRIS Statis)")
 async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
     try:
         # Hitung Subtotal
@@ -64,7 +64,7 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
         date_str = datetime.now().strftime("%Y%m%d")
         receipt_number = f"TRX-{date_str}-{random.randint(1000, 9999)}"
 
-        # Jika metode pembayaran Cash, langsung completed. Jika Xendit, status pending.
+        # Jika metode pembayaran Cash, langsung completed. Jika non-cash, status pending.
         initial_status = "completed" if payload.payment_method.lower() == "cash" else "pending"
         change_amount = payload.amount_tendered - total_amount if payload.payment_method.lower() == "cash" else 0
 
@@ -109,14 +109,17 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
         db.commit()
 
         # ==========================================
-        # JIKA BAYAR PAKAI XENDIT (Tembak API Xendit)
+        # JIKA BUKAN CASH (Menunggu Pembayaran QRIS Statis)
+        # Integrasi Xendit dinonaktifkan sementara
         # ==========================================
-        if payload.payment_method.lower() == "xendit":
+        if payload.payment_method.lower() in ["xendit", "qris_static"]:
+            """
+            # --- BLOK XENDIT DINONAKTIFKAN SEMENTARA ---
             xendit_payload = {
                 "external_id": transaction_id, 
                 "amount": total_amount,
                 "description": f"Pembayaran Pesanan {receipt_number}",
-                "invoice_duration": 86400, # Waktu kedaluwarsa 24 jam
+                "invoice_duration": 86400,
                 "customer": {"given_names": "Pelanggan Velo"}
             }
 
@@ -127,20 +130,21 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
                     json=xendit_payload,
                     timeout=10.0
                 )
-                
                 if response.status_code != 200:
                     raise HTTPException(status_code=400, detail="Gagal membuat Invoice Xendit")
-                    
                 xendit_data = response.json()
-                return {
-                    "status": "success",
-                    "message": "Menunggu Pembayaran",
-                    "data": {
-                        "transaction_id": transaction_id,
-                        "receipt_number": receipt_number,
-                        "invoice_url": xendit_data.get("invoice_url") # Link ini yang dibuka di Flutter
-                    }
+            """
+            
+            # Kembalikan response untuk QRIS Statis
+            return {
+                "status": "success",
+                "message": "Menunggu Pembayaran via QRIS Statis",
+                "data": {
+                    "transaction_id": transaction_id,
+                    "receipt_number": receipt_number,
+                    "invoice_url": None # Dinonaktifkan
                 }
+            }
 
         # Jika bayar Cash, langsung kembalikan sukses
         await manager.broadcast("REFRESH_TRANSAKSI")
@@ -155,25 +159,60 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Gagal memproses transaksi: {str(e)}")
 
 # ==========================================
-# 3. ENDPOINT: WEBHOOK XENDIT (Jantung Otomatisasi)
+# 3. ENDPOINT: KONFIRMASI MANUAL (OPSI B)
+# ==========================================
+@router.put("/{transaction_id}/confirm-manual", summary="Konfirmasi Pembayaran QRIS Statis secara Manual")
+async def confirm_manual_payment(transaction_id: str, db: Session = Depends(get_db)):
+    try:
+        # Cek apakah transaksi ada dan statusnya
+        check_query = text("SELECT id, status FROM transactions WHERE id = :id")
+        # Menggunakan .mappings() agar bisa diakses seperti dictionary
+        transaction = db.execute(check_query, {"id": transaction_id}).mappings().first()
+        
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
+            
+        if transaction["status"] == "completed":
+            raise HTTPException(status_code=400, detail="Transaksi sudah lunas sebelumnya")
+
+        # Update status menjadi completed dan pastikan payment_method tercatat sebagai qris_static
+        update_query = text("""
+            UPDATE transactions 
+            SET status = 'completed', payment_method = 'qris_static' 
+            WHERE id = :id
+        """)
+        db.execute(update_query, {"id": transaction_id})
+        db.commit()
+        
+        # Opsional: Beri sinyal WebSocket agar daftar transaksi di kasir lain ikut ter-refresh
+        await manager.broadcast(f"PAYMENT_SUCCESS_{transaction_id}")
+        await manager.broadcast("REFRESH_TRANSAKSI")
+        
+        return {
+            "status": "success", 
+            "message": "Pembayaran QRIS Statis berhasil dikonfirmasi secara manual",
+            "data": {"transaction_id": transaction_id}
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal mengonfirmasi transaksi: {str(e)}")
+
+# ==========================================
+# 4. ENDPOINT: WEBHOOK XENDIT (Jantung Otomatisasi)
 # ==========================================
 async def process_webhook_status(transaction_id: str, status: str, db: Session):
     try:
         if status == "PAID":
-            # Ubah status menjadi completed
             db.execute(text("UPDATE transactions SET status = 'completed' WHERE id = :id"), {"id": transaction_id})
             db.commit()
-
-            # Beri sinyal ke Flutter bahwa pembayaran sukses!
             await manager.broadcast(f"PAYMENT_SUCCESS_{transaction_id}")
             print(f"Transaksi {transaction_id} LUNAS.")
 
         elif status == "EXPIRED":
-            # Ubah status menjadi cancelled karena invoice kedaluwarsa
             db.execute(text("UPDATE transactions SET status = 'cancelled' WHERE id = :id"), {"id": transaction_id})
             db.commit()
-
-            # Beri sinyal ke Flutter agar kasir tahu pesanan hangus
             await manager.broadcast(f"PAYMENT_EXPIRED_{transaction_id}")
             print(f"Transaksi {transaction_id} KEDALUWARSA (Dibatalkan).")
 
@@ -185,12 +224,10 @@ async def process_webhook_status(transaction_id: str, status: str, db: Session):
 async def xendit_webhook(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     payload = await request.json()
     
-    external_id = payload.get("external_id") # Ini berisi transaction_id
-    status = payload.get("status") # Bisa "PAID" atau "EXPIRED"
+    external_id = payload.get("external_id") 
+    status = payload.get("status")
     
-    # Jika statusnya PAID (Lunas) atau EXPIRED (Hangus)
     if status in ["PAID", "EXPIRED"]:
-        # Jalankan di background agar respon ke Xendit secepat mungkin
         background_tasks.add_task(process_webhook_status, external_id, status, db)
         
-    return {"status": "success"} # Balas OK secepatnya ke Xendit
+    return {"status": "success"}
