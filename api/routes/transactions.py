@@ -119,7 +119,7 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
     try:
         # Query dasar (mengambil dari tabel transactions)
         query_str = """
-            SELECT id, receipt_number, total_amount, payment_method, status 
+            SELECT id, receipt_number, total_amount, payment_method, status, created_at 
             FROM transactions 
         """
         params = {}
@@ -130,8 +130,7 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
             params["cafe_id"] = cafe_id
             
         # Urutkan dari yang paling baru. 
-        # (Catatan: Jika Anda punya kolom created_at, ganti ORDER BY ke created_at DESC)
-        query_str += " ORDER BY receipt_number DESC" 
+        query_str += " ORDER BY created_at DESC, receipt_number DESC" 
         
         result = db.execute(text(query_str), params).mappings().all()
         
