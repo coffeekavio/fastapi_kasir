@@ -112,5 +112,63 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Gagal memproses transaksi: {str(e)}")
 
 # ==========================================
-# (BLOK XENDIT WEBHOOK DIHAPUS KARENA MENGGUNAKAN OPSI A)
+# 3. ENDPOINT: GET RIWAYAT TRANSAKSI (SEMUA)
 # ==========================================
+@router.get("/", summary="Ambil Daftar Riwayat Transaksi")
+async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depends(get_db)):
+    try:
+        # Query dasar (mengambil dari tabel transactions)
+        query_str = """
+            SELECT id, receipt_number, total_amount, payment_method, status 
+            FROM transactions 
+        """
+        params = {}
+        
+        # Opsional: Jika ingin memfilter berdasarkan kafe tertentu (Multi-tenant)
+        if cafe_id:
+            query_str += " WHERE cafe_id = :cafe_id "
+            params["cafe_id"] = cafe_id
+            
+        # Urutkan dari yang paling baru. 
+        # (Catatan: Jika Anda punya kolom created_at, ganti ORDER BY ke created_at DESC)
+        query_str += " ORDER BY receipt_number DESC" 
+        
+        result = db.execute(text(query_str), params).mappings().all()
+        
+        return {
+            "status": "success",
+            "message": "Berhasil mengambil riwayat transaksi",
+            "data": [dict(row) for row in result]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal mengambil riwayat transaksi: {str(e)}")
+
+
+# ==========================================
+# 4. ENDPOINT: GET DETAIL TRANSAKSI (BESERTA ITEM)
+# ==========================================
+@router.get("/{transaction_id}", summary="Ambil Detail Transaksi Lengkap")
+async def get_transaction_detail(transaction_id: str, db: Session = Depends(get_db)):
+    try:
+        # 1. Ambil data induk transaksi
+        trx_query = text("SELECT * FROM transactions WHERE id = :id")
+        trx = db.execute(trx_query, {"id": transaction_id}).mappings().first()
+        
+        if not trx:
+            raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
+            
+        # 2. Ambil data item/keranjang yang dibeli
+        items_query = text("SELECT * FROM transaction_items WHERE transaction_id = :id")
+        items = db.execute(items_query, {"id": transaction_id}).mappings().all()
+        
+        # 3. Gabungkan data
+        trx_data = dict(trx)
+        trx_data["items"] = [dict(item) for item in items]
+        
+        return {
+            "status": "success",
+            "message": "Berhasil mengambil detail transaksi",
+            "data": trx_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal mengambil detail transaksi: {str(e)}")
