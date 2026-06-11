@@ -38,6 +38,13 @@ class TransactionCreate(BaseModel):
     voucher_discount_amount: int = 0
     items: List[TransactionItemCreate]
 
+class TransactionUpdate(BaseModel):
+    discount_amount: Optional[int] = None
+    voucher_discount_amount: Optional[int] = None
+    payment_method: Optional[str] = None
+    amount_tendered: Optional[int] = None
+    status: Optional[str] = None
+
 # ==========================================
 # 2. ENDPOINT: CHECKOUT (OPSI A: LANGSUNG LUNAS)
 # ==========================================
@@ -172,3 +179,106 @@ async def get_transaction_detail(transaction_id: str, db: Session = Depends(get_
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal mengambil detail transaksi: {str(e)}")
+    
+# ==========================================
+# 5. DELETE
+# ==========================================
+@router.delete("/{transaction_id}", summary="Hapus Transaksi")
+async def delete_transaction(transaction_id: str, db: Session = Depends(get_db)):
+    try:
+        delete_query = text("DELETE FROM transactions WHERE id = :id")
+        db.execute(delete_query, {"id": transaction_id})
+        db.commit()
+        return {"status": "success", "message": "Transaksi berhasil dihapus"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menghapus transaksi: {str(e)}")
+    
+# ==========================================
+# 6. ENDPOINT: UPDATE/EDIT TRANSAKSI
+# ==========================================
+@router.patch("/{transaction_id}", summary="Update/Edit Transaksi")
+async def update_transaction(
+    transaction_id: str, 
+    payload: TransactionUpdate, 
+    db: Session = Depends(get_db)
+):
+    try:
+        # 1. Cek apakah transaksi ada
+        trx_query = text("SELECT * FROM transactions WHERE id = :id")
+        trx = db.execute(trx_query, {"id": transaction_id}).mappings().first()
+        
+        if not trx:
+            raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
+        
+        # 2. Convert ke dict untuk update
+        trx_data = dict(trx)
+        
+        # 3. Hitung ulang total jika ada perubahan discount atau voucher
+        update_fields = {}
+        
+        if payload.discount_amount is not None:
+            update_fields["discount_amount"] = payload.discount_amount
+        
+        if payload.voucher_discount_amount is not None:
+            update_fields["voucher_discount_amount"] = payload.voucher_discount_amount
+        
+        if payload.payment_method is not None:
+            update_fields["payment_method"] = payload.payment_method
+        
+        if payload.amount_tendered is not None:
+            update_fields["amount_tendered"] = payload.amount_tendered
+        
+        if payload.status is not None:
+            update_fields["status"] = payload.status
+        
+        # 4. Hitung total_amount baru jika ada perubahan discount
+        if "discount_amount" in update_fields or "voucher_discount_amount" in update_fields:
+            discount_amount = update_fields.get("discount_amount", trx_data["discount_amount"])
+            voucher_discount_amount = update_fields.get("voucher_discount_amount", trx_data["voucher_discount_amount"])
+            subtotal = trx_data["subtotal"]
+            new_total = max(0, subtotal - discount_amount - voucher_discount_amount)
+            update_fields["total_amount"] = new_total
+            
+            # Update change amount jika payment method cash
+            payment_method = update_fields.get("payment_method", trx_data["payment_method"])
+            amount_tendered = update_fields.get("amount_tendered", trx_data["amount_tendered"])
+            
+            if payment_method.lower() == "cash":
+                update_fields["change_amount"] = max(0, amount_tendered - new_total)
+            else:
+                update_fields["change_amount"] = 0
+        elif "amount_tendered" in update_fields or "payment_method" in update_fields:
+            # Hanya update change jika payment method atau amount_tendered berubah
+            payment_method = update_fields.get("payment_method", trx_data["payment_method"])
+            amount_tendered = update_fields.get("amount_tendered", trx_data["amount_tendered"])
+            
+            if payment_method.lower() == "cash":
+                update_fields["change_amount"] = max(0, amount_tendered - trx_data["total_amount"])
+            else:
+                update_fields["change_amount"] = 0
+        
+        # 5. Build UPDATE query
+        if update_fields:
+            set_clause = ", ".join([f"{key} = :{key}" for key in update_fields.keys()])
+            update_query = text(f"UPDATE transactions SET {set_clause} WHERE id = :id")
+            update_fields["id"] = transaction_id
+            db.execute(update_query, update_fields)
+            db.commit()
+        
+        # 6. Ambil data transaksi yang sudah diupdate
+        updated_trx = db.execute(trx_query, {"id": transaction_id}).mappings().first()
+        
+        # Beri sinyal WebSocket untuk me-refresh data transaksi di layar
+        await manager.broadcast("REFRESH_TRANSAKSI")
+        
+        return {
+            "status": "success",
+            "message": "Transaksi berhasil diupdate",
+            "data": dict(updated_trx)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal mengupdate transaksi: {str(e)}")
