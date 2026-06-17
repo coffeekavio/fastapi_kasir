@@ -253,7 +253,9 @@ async def update_transaction(
         if payload.status is not None:
             update_fields["status"] = payload.status
             
-        if payload.total_amount is not None:
+        total_override = payload.total_amount is not None
+
+        if total_override:
             # gunakan override total yang dikirim client
             new_total = max(0, int(payload.total_amount))
             update_fields["total_amount"] = new_total
@@ -267,9 +269,8 @@ async def update_transaction(
             else:
                 update_fields["change_amount"] = 0
 
-        
-        # 4. Hitung total_amount baru jika ada perubahan discount
-        if "discount_amount" in update_fields or "voucher_discount_amount" in update_fields:
+        # 4. Hitung total_amount baru jika ada perubahan discount dan tidak ada override total
+        elif "discount_amount" in update_fields or "voucher_discount_amount" in update_fields:
             discount_amount = update_fields.get("discount_amount", trx_data["discount_amount"])
             voucher_discount_amount = update_fields.get("voucher_discount_amount", trx_data["voucher_discount_amount"])
             subtotal = trx_data["subtotal"]
