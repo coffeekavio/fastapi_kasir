@@ -122,9 +122,12 @@ async def checkout(payload: TransactionCreate, db: Session = Depends(get_db)):
 # 3. ENDPOINT: GET RIWAYAT TRANSAKSI (SEMUA)
 # ==========================================
 @router.get("/", summary="Ambil Daftar Riwayat Transaksi")
-async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_all_transactions(
+    cafe_id: Optional[str] = None,
+    cashier_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     try:
-        # Query dasar (mengambil dari tabel transactions)
         query_str = """
             SELECT t.id, t.receipt_number, t.total_amount, t.payment_method,
                    t.status, t.created_at,
@@ -133,18 +136,23 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
             LEFT JOIN users u ON t.cashier_id = u.id
         """
         params = {}
-        
-        # Opsional: Jika ingin memfilter berdasarkan kafe tertentu (Multi-tenant)
+        where_clauses = []
+
         if cafe_id:
-            query_str += " WHERE t.cafe_id = :cafe_id "
+            where_clauses.append("t.cafe_id = :cafe_id")
             params["cafe_id"] = cafe_id
-            
-        # Urutkan dari yang paling baru. 
-        # paling baru. 
-        query_str += " ORDER BY t.created_at DESC, t.receipt_number DESC" 
-        
+
+        if cashier_id:
+            where_clauses.append("t.cashier_id = :cashier_id")
+            params["cashier_id"] = cashier_id
+
+        if where_clauses:
+            query_str += " WHERE " + " AND ".join(where_clauses)
+
+        query_str += " ORDER BY t.created_at DESC, t.receipt_number DESC"
+
         result = db.execute(text(query_str), params).mappings().all()
-        
+
         return {
             "status": "success",
             "message": "Berhasil mengambil riwayat transaksi",
@@ -152,7 +160,6 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal mengambil riwayat transaksi: {str(e)}")
-
 
 # ==========================================
 # 4. ENDPOINT: GET DETAIL TRANSAKSI (BESERTA ITEM)
