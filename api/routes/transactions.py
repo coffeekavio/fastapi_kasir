@@ -164,8 +164,13 @@ async def get_transaction_detail(transaction_id: str, db: Session = Depends(get_
         if not trx:
             raise HTTPException(status_code=404, detail="Transaksi tidak ditemukan")
             
-        # 2. Ambil data item/keranjang yang dibeli
-        items_query = text("SELECT * FROM transaction_items WHERE transaction_id = :id")
+        # 2. Ambil data item dengan join ke menu table untuk mendapat nama menu
+        items_query = text("""
+            SELECT ti.*, m.name as menu_name
+            FROM transaction_items ti
+            LEFT JOIN menus m ON ti.menu_id = m.id
+            WHERE ti.transaction_id = :id
+        """)
         items = db.execute(items_query, {"id": transaction_id}).mappings().all()
         
         # 3. Gabungkan data
@@ -179,7 +184,7 @@ async def get_transaction_detail(transaction_id: str, db: Session = Depends(get_
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gagal mengambil detail transaksi: {str(e)}")
-    
+       
 # ==========================================
 # 5. DELETE
 # ==========================================
