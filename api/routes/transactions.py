@@ -126,8 +126,11 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
     try:
         # Query dasar (mengambil dari tabel transactions)
         query_str = """
-            SELECT id, receipt_number, total_amount, payment_method, status, created_at 
-            FROM transactions 
+            SELECT t.id, t.receipt_number, t.total_amount, t.payment_method,
+                   t.status, t.created_at,
+                   u.full_name AS cashier_name
+            FROM transactions t
+            LEFT JOIN users u ON t.cashier_id = u.id
         """
         params = {}
         
