@@ -158,7 +158,12 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
 async def get_transaction_detail(transaction_id: str, db: Session = Depends(get_db)):
     try:
         # 1. Ambil data induk transaksi
-        trx_query = text("SELECT * FROM transactions WHERE id = :id")
+        trx_query = text("""
+            SELECT t.*, u.full_name AS cashier_name
+            FROM transactions t
+            LEFT JOIN users u ON t.cashier_id = u.id
+            WHERE t.id = :id
+        """)
         trx = db.execute(trx_query, {"id": transaction_id}).mappings().first()
         
         if not trx:
