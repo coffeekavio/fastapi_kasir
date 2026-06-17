@@ -44,6 +44,7 @@ class TransactionUpdate(BaseModel):
     payment_method: Optional[str] = None
     amount_tendered: Optional[int] = None
     status: Optional[str] = None
+    total_amount: Optional[int] = None 
 
 # ==========================================
 # 2. ENDPOINT: CHECKOUT (OPSI A: LANGSUNG LUNAS)
@@ -251,6 +252,21 @@ async def update_transaction(
         
         if payload.status is not None:
             update_fields["status"] = payload.status
+            
+        if payload.total_amount is not None:
+            # gunakan override total yang dikirim client
+            new_total = max(0, int(payload.total_amount))
+            update_fields["total_amount"] = new_total
+
+            # recalc change_amount using payment_method/amount_tendered (prefer update_fields values if present)
+            payment_method = update_fields.get("payment_method", trx_data["payment_method"])
+            amount_tendered = update_fields.get("amount_tendered", trx_data["amount_tendered"])
+
+            if payment_method and payment_method.lower() == "cash":
+                update_fields["change_amount"] = max(0, (amount_tendered or 0) - new_total)
+            else:
+                update_fields["change_amount"] = 0
+
         
         # 4. Hitung total_amount baru jika ada perubahan discount
         if "discount_amount" in update_fields or "voucher_discount_amount" in update_fields:
