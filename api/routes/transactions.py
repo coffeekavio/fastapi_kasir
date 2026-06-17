@@ -136,12 +136,12 @@ async def get_all_transactions(cafe_id: Optional[str] = None, db: Session = Depe
         
         # Opsional: Jika ingin memfilter berdasarkan kafe tertentu (Multi-tenant)
         if cafe_id:
-            query_str += " WHERE cafe_id = :cafe_id "
+            query_str += " WHERE t.cafe_id = :cafe_id "
             params["cafe_id"] = cafe_id
             
         # Urutkan dari yang paling baru. 
         # paling baru. 
-        query_str += " ORDER BY created_at DESC, receipt_number DESC" 
+        query_str += " ORDER BY t.created_at DESC, t.receipt_number DESC" 
         
         result = db.execute(text(query_str), params).mappings().all()
         
